@@ -1,0 +1,1696 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ore RNG</title>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #f8f8f6;
+    --bg2: #efefeb;
+    --bg3: #e5e5e0;
+    --panel: rgba(255,255,255,0.85);
+    --border: rgba(0,0,0,0.08);
+    --text: #1a1a18;
+    --text2: #5a5a55;
+    --text3: #9a9a90;
+    --accent: #2563eb;
+    --shadow: 0 4px 24px rgba(0,0,0,0.07);
+    --shadow-lg: 0 8px 48px rgba(0,0,0,0.12);
+    --radius: 16px;
+    --radius-sm: 10px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Outfit', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    overflow-x: hidden;
+    transition: background 0.4s, color 0.4s;
+  }
+
+  /* ── TOP BAR ── */
+  #topbar {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+    background: var(--panel);
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--border);
+    padding: 10px 24px;
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 12px;
+  }
+  #topbar-left { display: flex; flex-direction: column; gap: 2px; min-width: 180px; }
+  #topbar-ore-name { font-size: 13px; font-weight: 700; letter-spacing: 0.04em; }
+  #topbar-ore-sub { font-size: 11px; color: var(--text3); font-family: 'JetBrains Mono', monospace; }
+  #topbar-center { display: flex; gap: 20px; align-items: center; }
+  #topbar-coins { font-size: 22px; font-weight: 800; letter-spacing: -0.02em; }
+  #topbar-mps { font-size: 12px; color: var(--text2); }
+  #topbar-right { display: flex; gap: 8px; min-width: 180px; justify-content: flex-end; }
+
+  /* ── BUTTONS ── */
+  .btn {
+    border: 1.5px solid var(--border);
+    background: var(--panel);
+    color: var(--text);
+    font-family: 'Outfit', sans-serif;
+    font-size: 13px;
+    font-weight: 600;
+    padding: 8px 16px;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    transition: all 0.18s;
+    white-space: nowrap;
+  }
+  .btn:hover { background: var(--bg3); transform: translateY(-1px); box-shadow: var(--shadow); }
+  .btn:active { transform: translateY(0); }
+  .btn-primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .btn-primary:hover { opacity: 0.88; background: var(--accent); }
+  .btn-sm { padding: 5px 10px; font-size: 11px; }
+
+  /* ── MAIN LAYOUT ── */
+  #main {
+    padding-top: 80px;
+    min-height: 100vh;
+    display: flex; align-items: center; justify-content: center;
+    position: relative;
+  }
+
+  /* ── SPIN AREA ── */
+  #spin-area {
+    display: flex; flex-direction: column; align-items: center; gap: 28px;
+  }
+  #spin-window {
+    width: 260px; height: 260px;
+    border-radius: 50%;
+    border: 3px solid var(--border);
+    background: var(--bg2);
+    display: flex; align-items: center; justify-content: center;
+    position: relative;
+    overflow: hidden;
+    box-shadow: var(--shadow-lg), inset 0 0 40px rgba(0,0,0,0.04);
+    transition: border-color 0.3s, box-shadow 0.3s;
+  }
+  #spin-window.autoroll-active {
+    border-color: #f59e0b;
+    box-shadow: var(--shadow-lg), inset 0 0 40px rgba(0,0,0,0.04), 0 0 24px rgba(245,158,11,0.3);
+    animation: pulseRing 1s ease-in-out infinite;
+  }
+  @keyframes pulseRing {
+    0%, 100% { box-shadow: var(--shadow-lg), inset 0 0 40px rgba(0,0,0,0.04), 0 0 24px rgba(245,158,11,0.3); }
+    50% { box-shadow: var(--shadow-lg), inset 0 0 40px rgba(0,0,0,0.04), 0 0 40px rgba(245,158,11,0.5); }
+  }
+  #ore-display {
+    display: flex; flex-direction: column; align-items: center; gap: 6px;
+    position: relative; z-index: 2;
+    transition: all 0.3s;
+  }
+  #ore-icon {
+    width: 80px; height: 80px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 36px;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+    transition: background 0.15s, box-shadow 0.15s;
+  }
+  #ore-name-display {
+    font-size: 16px; font-weight: 700; text-align: center;
+    transition: color 0.15s;
+  }
+  #ore-rarity-display {
+    font-size: 11px; font-family: 'JetBrains Mono', monospace;
+    color: var(--text3); text-align: center;
+  }
+  #autoroll-counter {
+    font-size: 11px; font-family: 'JetBrains Mono', monospace;
+    color: #f59e0b; text-align: center; display: none;
+  }
+
+  /* Roll animation - instant flash only */
+  @keyframes rollFlash {
+    0% { opacity: 0.3; transform: scale(0.92); }
+    60% { opacity: 1; transform: scale(1.04); }
+    100% { opacity: 1; transform: scale(1); }
+  }
+  .roll-anim { animation: rollFlash 0.18s cubic-bezier(0.22,1,0.36,1) forwards; }
+
+  #spin-btn {
+    padding: 16px 48px;
+    font-size: 17px;
+    font-weight: 800;
+    border-radius: 50px;
+    background: linear-gradient(135deg, #2563eb, #7c3aed);
+    color: #fff;
+    border: none;
+    cursor: pointer;
+    box-shadow: 0 6px 32px rgba(37,99,235,0.3);
+    transition: all 0.18s;
+    letter-spacing: 0.02em;
+  }
+  #spin-btn:hover { transform: translateY(-2px); box-shadow: 0 10px 40px rgba(37,99,235,0.4); }
+  #spin-btn:active { transform: translateY(0); }
+  #spin-btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+  #spin-cost { font-size: 12px; color: var(--text3); font-family: 'JetBrains Mono', monospace; }
+
+  /* ── AUTOROLL PANEL ── */
+  #autoroll-panel {
+    position: fixed; z-index: 200;
+    background: var(--panel);
+    backdrop-filter: blur(16px);
+    border: 1.5px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow-lg);
+    padding: 20px;
+    bottom: 16px; left: 16px;
+    width: 300px;
+    display: none;
+  }
+  #autoroll-panel.open { display: block; }
+  .autoroll-title { font-size: 14px; font-weight: 800; margin-bottom: 14px; display: flex; align-items: center; gap: 6px; }
+  .ar-section { margin-bottom: 12px; }
+  .ar-label { font-size: 11px; font-weight: 700; color: var(--text3); letter-spacing: 0.06em; text-transform: uppercase; margin-bottom: 6px; }
+  .ar-row { display: flex; gap: 6px; align-items: center; }
+  .ar-select, .ar-input {
+    flex: 1;
+    background: var(--bg2);
+    border: 1.5px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--text);
+    font-family: 'Outfit', sans-serif;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 7px 10px;
+    outline: none;
+    transition: border-color 0.15s;
+  }
+  .ar-select:focus, .ar-input:focus { border-color: var(--accent); }
+  .ar-input { width: 100px; flex: none; }
+  .ar-ore-list {
+    max-height: 130px; overflow-y: auto;
+    border: 1.5px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--bg2);
+  }
+  .ar-ore-item {
+    padding: 6px 10px; font-size: 11px; font-weight: 600;
+    cursor: pointer; display: flex; align-items: center; gap: 6px;
+    transition: background 0.1s;
+    border-bottom: 1px solid var(--border);
+  }
+  .ar-ore-item:last-child { border-bottom: none; }
+  .ar-ore-item:hover { background: var(--bg3); }
+  .ar-ore-item.selected { background: rgba(37,99,235,0.1); color: var(--accent); }
+  .ar-ore-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+  #ar-search {
+    width: 100%; background: var(--bg2); border: 1.5px solid var(--border);
+    border-radius: var(--radius-sm); color: var(--text);
+    font-family: 'Outfit', sans-serif; font-size: 12px; padding: 6px 10px;
+    outline: none; margin-bottom: 4px;
+  }
+  #ar-search:focus { border-color: var(--accent); }
+  #ar-status {
+    font-size: 11px; font-family: 'JetBrains Mono', monospace;
+    color: var(--text3); margin-top: 8px; text-align: center;
+    min-height: 16px;
+  }
+  #ar-status.running { color: #f59e0b; }
+  #ar-status.found { color: #22c55e; }
+  .ar-btns { display: flex; gap: 6px; margin-top: 10px; }
+  #ar-start-btn {
+    flex: 2; padding: 9px; font-size: 13px; font-weight: 800;
+    border-radius: 50px; border: none; cursor: pointer;
+    background: linear-gradient(135deg, #f59e0b, #ef4444);
+    color: #fff;
+    box-shadow: 0 4px 16px rgba(245,158,11,0.3);
+    transition: all 0.18s;
+  }
+  #ar-start-btn:hover { transform: translateY(-1px); opacity: 0.9; }
+  #ar-start-btn.stop { background: linear-gradient(135deg, #ef4444, #991b1b); }
+  #ar-open-btn {
+    position: fixed; bottom: 16px; left: 16px; z-index: 150;
+  }
+
+  /* ── PANELS (inventory, settings) ── */
+  .panel {
+    position: fixed; z-index: 200;
+    background: var(--panel);
+    backdrop-filter: blur(16px);
+    border: 1.5px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow-lg);
+    padding: 20px;
+    display: none;
+  }
+  .panel.open { display: block; }
+  .panel-header {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 16px;
+  }
+  .panel-title { font-size: 15px; font-weight: 700; }
+  .panel-close {
+    width: 26px; height: 26px; border-radius: 50%;
+    background: var(--bg3); border: none; cursor: pointer;
+    font-size: 14px; color: var(--text2);
+    display: flex; align-items: center; justify-content: center;
+    transition: background 0.15s;
+  }
+  .panel-close:hover { background: #e0e0d8; }
+
+  /* ── INVENTORY ── */
+  #inventory-panel {
+    bottom: 16px; right: 16px;
+    width: 360px; max-height: 560px;
+    overflow-y: auto;
+  }
+  .inv-tabs { display: flex; gap: 6px; margin-bottom: 14px; }
+  .inv-tab {
+    flex: 1; padding: 7px; text-align: center;
+    font-size: 11px; font-weight: 600;
+    border-radius: var(--radius-sm);
+    cursor: pointer; border: 1.5px solid var(--border);
+    background: transparent; color: var(--text2);
+    transition: all 0.15s;
+  }
+  .inv-tab.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+  #inv-grid {
+    display: grid; grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+  .inv-item {
+    background: var(--bg2);
+    border-radius: var(--radius-sm);
+    padding: 10px;
+    cursor: pointer;
+    border: 1.5px solid transparent;
+    transition: all 0.15s;
+    position: relative;
+  }
+  .inv-item:hover { border-color: var(--accent); transform: translateY(-1px); }
+  .inv-item.equipped { border-color: var(--accent); background: rgba(37,99,235,0.06); }
+  .inv-item-icon {
+    width: 36px; height: 36px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 18px; margin-bottom: 6px;
+  }
+  .inv-item-name { font-size: 12px; font-weight: 700; }
+  .inv-item-count {
+    font-size: 10px; font-family: 'JetBrains Mono', monospace;
+    color: var(--text3);
+  }
+  .inv-item-mps { font-size: 10px; color: var(--text2); }
+  .super-badge {
+    font-size: 9px; font-weight: 700; color: #38bdf8;
+    letter-spacing: 0.04em;
+  }
+  .mega-badge {
+    font-size: 9px; font-weight: 700; color: #f59e0b;
+    letter-spacing: 0.04em;
+  }
+  .inv-item-actions { display: flex; gap: 4px; margin-top: 6px; flex-wrap: wrap; }
+  .merge-btn {
+    flex: 1; padding: 4px; font-size: 10px; font-weight: 700;
+    border-radius: 6px; border: none;
+    background: linear-gradient(135deg, #f59e0b, #ef4444);
+    color: #fff; cursor: pointer;
+    transition: opacity 0.15s;
+  }
+  .merge-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+  .merge-mega-btn {
+    flex: 1; padding: 4px; font-size: 10px; font-weight: 700;
+    border-radius: 6px; border: none;
+    background: linear-gradient(135deg, #7c3aed, #2563eb);
+    color: #fff; cursor: pointer;
+    transition: opacity 0.15s;
+  }
+  .merge-mega-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+  .equip-btn {
+    flex: 1; padding: 4px; font-size: 10px; font-weight: 700;
+    border-radius: 6px; border: none;
+    background: var(--accent); color: #fff; cursor: pointer;
+    transition: opacity 0.15s;
+  }
+
+  /* ── SETTINGS ── */
+  #settings-panel {
+    top: 68px; right: 16px;
+    width: 300px;
+  }
+  .setting-row { margin-bottom: 14px; }
+  .setting-label { font-size: 12px; font-weight: 600; color: var(--text2); margin-bottom: 6px; }
+  .color-chips { display: flex; gap: 6px; flex-wrap: wrap; }
+  .color-chip {
+    width: 28px; height: 28px; border-radius: 50%;
+    border: 2.5px solid transparent;
+    cursor: pointer; transition: transform 0.15s, border-color 0.15s;
+  }
+  .color-chip:hover { transform: scale(1.12); }
+  .color-chip.active { border-color: var(--accent); transform: scale(1.12); }
+  .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .stat-card {
+    background: var(--bg2); border-radius: var(--radius-sm);
+    padding: 10px; text-align: center;
+  }
+  .stat-val { font-size: 18px; font-weight: 800; font-family: 'JetBrains Mono', monospace; }
+  .stat-lbl { font-size: 10px; color: var(--text3); margin-top: 2px; }
+
+  /* ── SPIN SELECTOR ── */
+  #spin-selector {
+    position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%);
+    z-index: 150;
+    display: flex; align-items: center; gap: 8px;
+    background: var(--panel);
+    border: 1.5px solid var(--border);
+    border-radius: 50px;
+    padding: 8px 16px;
+    box-shadow: var(--shadow);
+  }
+  #spin-selector label { font-size: 11px; font-weight: 600; color: var(--text2); }
+  .spin-type-btn {
+    padding: 5px 12px; font-size: 11px; font-weight: 700;
+    border-radius: 50px; border: 1.5px solid var(--border);
+    background: transparent; color: var(--text); cursor: pointer;
+    transition: all 0.15s;
+  }
+  .spin-type-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+  #info-btn {
+    width: 22px; height: 22px; border-radius: 50%;
+    background: var(--bg3); border: 1.5px solid var(--border);
+    font-size: 11px; font-weight: 800; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    color: var(--text2); transition: background 0.15s;
+  }
+
+  /* ── POPUPS & NOTIFICATIONS ── */
+  #notif-container {
+    position: fixed; top: 72px; left: 50%; transform: translateX(-50%);
+    z-index: 500; display: flex; flex-direction: column; gap: 8px;
+    align-items: center; pointer-events: none;
+  }
+  .notif {
+    background: var(--panel); border: 1.5px solid var(--border);
+    border-radius: var(--radius); padding: 14px 24px;
+    box-shadow: var(--shadow-lg);
+    text-align: center; min-width: 260px;
+    animation: notifIn 0.4s cubic-bezier(0.22,1,0.36,1);
+  }
+  @keyframes notifIn {
+    from { opacity: 0; transform: translateY(-20px) scale(0.9); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+  }
+  .notif-title { font-size: 11px; font-weight: 700; color: var(--text3); letter-spacing: 0.08em; text-transform: uppercase; }
+  .notif-ore { font-size: 20px; font-weight: 800; margin: 4px 0; }
+  .notif-rarity { font-size: 11px; font-family: 'JetBrains Mono', monospace; color: var(--text3); }
+
+  /* ── RARE ANIMATION ── */
+  #rare-overlay {
+    position: fixed; inset: 0; z-index: 600;
+    pointer-events: none;
+    display: none;
+  }
+  #rare-overlay.active { display: block; }
+  .rare-ray {
+    position: absolute;
+    left: 50%; top: 50%;
+    width: 120vmax; height: 3px;
+    background: linear-gradient(90deg, transparent, currentColor, transparent);
+    transform-origin: 0 50%;
+    animation: raySpread 1.2s ease-out forwards;
+  }
+  @keyframes raySpread {
+    0% { opacity: 0.8; transform: rotate(var(--a)) scaleX(0); }
+    50% { opacity: 0.6; transform: rotate(var(--a)) scaleX(1); }
+    100% { opacity: 0; transform: rotate(var(--a)) scaleX(1.2); }
+  }
+  #rare-text {
+    position: fixed; top: 50%; left: 50%; transform: translate(-50%,-50%);
+    font-size: 48px; font-weight: 900; letter-spacing: -0.04em;
+    z-index: 601; pointer-events: none;
+    animation: rarePop 2s ease forwards;
+    text-shadow: 0 0 40px currentColor;
+  }
+  @keyframes rarePop {
+    0% { opacity: 0; transform: translate(-50%,-50%) scale(0.5); }
+    20% { opacity: 1; transform: translate(-50%,-50%) scale(1.1); }
+    60% { opacity: 1; transform: translate(-50%,-50%) scale(1); }
+    100% { opacity: 0; transform: translate(-50%,-50%) scale(1.05); }
+  }
+
+  /* ── EPIC EXPLOSION ANIMATION (1 in 50k+) ── */
+  #epic-overlay {
+    position: fixed; inset: 0; z-index: 700;
+    pointer-events: none; display: none; overflow: hidden;
+  }
+  #epic-overlay.active { display: block; }
+  .epic-shockwave {
+    position: absolute; left: 50%; top: 50%;
+    border-radius: 50%;
+    transform: translate(-50%,-50%) scale(0);
+    border: 6px solid currentColor;
+    width: 40px; height: 40px;
+    animation: shockwave 1.4s ease-out forwards;
+  }
+  .epic-shockwave:nth-child(2) { animation-delay: 0.15s; }
+  .epic-shockwave:nth-child(3) { animation-delay: 0.3s; }
+  @keyframes shockwave {
+    0% { transform: translate(-50%,-50%) scale(0); opacity: 1; }
+    100% { transform: translate(-50%,-50%) scale(20); opacity: 0; }
+  }
+  .epic-particle {
+    position: absolute; left: 50%; top: 50%;
+    width: 12px; height: 12px; border-radius: 50%;
+    animation: epicParticle 1.2s ease-out forwards;
+  }
+  @keyframes epicParticle {
+    0% { transform: translate(-50%,-50%) rotate(var(--pa)) translateX(0); opacity: 1; }
+    100% { transform: translate(-50%,-50%) rotate(var(--pa)) translateX(280px); opacity: 0; }
+  }
+  .epic-shard {
+    position: absolute; left: 50%; top: 50%;
+    width: 6px; height: 30px; border-radius: 3px;
+    transform-origin: 0 0;
+    animation: epicShard 1s ease-out forwards;
+  }
+  @keyframes epicShard {
+    0% { transform: translate(-50%,-50%) rotate(var(--sa)) scaleY(0); opacity: 1; }
+    30% { transform: translate(-50%,-50%) rotate(var(--sa)) scaleY(1) translateY(-120px); opacity: 1; }
+    100% { transform: translate(-50%,-50%) rotate(var(--sa)) scaleY(0.3) translateY(-300px); opacity: 0; }
+  }
+  #epic-flash {
+    position: fixed; inset: 0; z-index: 699;
+    pointer-events: none; display: none;
+    animation: epicFlash 0.6s ease-out forwards;
+  }
+  #epic-flash.active { display: block; }
+  @keyframes epicFlash {
+    0% { opacity: 0.9; }
+    100% { opacity: 0; }
+  }
+  #epic-text {
+    position: fixed; top: 42%; left: 50%; transform: translate(-50%,-50%);
+    font-size: 54px; font-weight: 900; letter-spacing: -0.04em;
+    z-index: 710; pointer-events: none;
+    animation: epicTextPop 2.5s ease forwards;
+    text-shadow: 0 0 60px currentColor, 0 0 120px currentColor;
+    display: none;
+  }
+  @keyframes epicTextPop {
+    0% { opacity: 0; transform: translate(-50%,-50%) scale(0.2) rotate(-8deg); }
+    15% { opacity: 1; transform: translate(-50%,-50%) scale(1.2) rotate(2deg); }
+    30% { transform: translate(-50%,-50%) scale(0.95) rotate(0deg); }
+    65% { opacity: 1; }
+    100% { opacity: 0; transform: translate(-50%,-50%) scale(1.1); }
+  }
+  #epic-subtitle {
+    position: fixed; top: 58%; left: 50%; transform: translateX(-50%);
+    font-size: 18px; font-weight: 800; letter-spacing: 0.15em; text-transform: uppercase;
+    z-index: 710; pointer-events: none; display: none;
+    animation: epicSubPop 2.5s ease forwards;
+  }
+  @keyframes epicSubPop {
+    0% { opacity: 0; transform: translateX(-50%) translateY(20px); }
+    20% { opacity: 1; transform: translateX(-50%) translateY(0); }
+    70% { opacity: 1; }
+    100% { opacity: 0; }
+  }
+  #info-popup {
+    position: fixed; z-index: 300;
+    background: var(--panel); border: 1.5px solid var(--border);
+    border-radius: var(--radius-sm); padding: 14px 18px;
+    box-shadow: var(--shadow-lg); font-size: 12px;
+    max-width: 220px; display: none;
+    bottom: 60px; left: 50%; transform: translateX(-50%);
+  }
+  #info-popup.open { display: block; }
+  #info-popup h4 { font-size: 13px; font-weight: 700; margin-bottom: 8px; }
+  #info-popup p { margin-bottom: 4px; color: var(--text2); }
+  #info-popup strong { color: var(--text); }
+
+  /* ── REBIRTH PANEL ── */
+  #rebirth-panel {
+    position: fixed; top: 50%; left: 50%; transform: translate(-50%,-50%);
+    z-index: 400;
+    width: 320px; display: none;
+    text-align: center;
+  }
+  #rebirth-panel.open { display: block; }
+  #rebirth-overlay-bg {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.4);
+    z-index: 399; display: none; backdrop-filter: blur(4px);
+  }
+  #rebirth-overlay-bg.open { display: block; }
+  .rebirth-icon { font-size: 48px; margin-bottom: 8px; }
+  .rebirth-title { font-size: 22px; font-weight: 900; margin-bottom: 4px; }
+  .rebirth-desc { font-size: 13px; color: var(--text2); margin-bottom: 16px; }
+  .rebirth-cost { font-size: 18px; font-weight: 800; font-family: 'JetBrains Mono', monospace; margin-bottom: 16px; }
+
+  /* scrollbar */
+  ::-webkit-scrollbar { width: 4px; }
+  ::-webkit-scrollbar-thumb { background: var(--bg3); border-radius: 4px; }
+
+  /* Theme variants */
+  body.dark {
+    --bg: #0f0f0d; --bg2: #1a1a16; --bg3: #252520;
+    --panel: rgba(20,20,18,0.92);
+    --border: rgba(255,255,255,0.1);
+    --text: #f0f0ec; --text2: #a0a09a; --text3: #606058;
+    --shadow: 0 4px 24px rgba(0,0,0,0.4);
+    --shadow-lg: 0 8px 48px rgba(0,0,0,0.5);
+  }
+  body.blue { --bg: #eff6ff; --bg2: #dbeafe; --bg3: #bfdbfe; --text: #1e3a5f; --text2: #3b5f8a; --text3: #6b8fb5; }
+  body.green { --bg: #f0fdf4; --bg2: #dcfce7; --bg3: #bbf7d0; --text: #14532d; --text2: #166534; --text3: #4ade80; }
+  body.pink { --bg: #fdf2f8; --bg2: #fce7f3; --bg3: #fbcfe8; --text: #831843; --text2: #9d174d; --text3: #f472b6; }
+  body.purple { --bg: #faf5ff; --bg2: #f3e8ff; --bg3: #e9d5ff; --text: #3b0764; --text2: #6b21a8; --text3: #a855f7; }
+  body.yellow { --bg: #fefce8; --bg2: #fef9c3; --bg3: #fef08a; --text: #713f12; --text2: #92400e; --text3: #ca8a04; }
+  body.red { --bg: #fff5f5; --bg2: #fee2e2; --bg3: #fecaca; --text: #7f1d1d; --text2: #991b1b; --text3: #ef4444; }
+  body.orange { --bg: #fff7ed; --bg2: #ffedd5; --bg3: #fed7aa; --text: #7c2d12; --text2: #9a3412; --text3: #f97316; }
+  body.teal { --bg: #f0fdfa; --bg2: #ccfbf1; --bg3: #99f6e4; --text: #134e4a; --text2: #115e59; --text3: #2dd4bf; }
+
+  .fade-out { animation: fadeOut 0.4s forwards; }
+  @keyframes fadeOut { to { opacity: 0; pointer-events: none; } }
+</style>
+</head>
+<body>
+
+<!-- TOP BAR -->
+<div id="topbar">
+  <div id="topbar-left">
+    <div id="topbar-ore-name">No ore equipped</div>
+    <div id="topbar-ore-sub">—</div>
+  </div>
+  <div id="topbar-center">
+    <div>
+      <div id="topbar-coins">10.00</div>
+      <div id="topbar-mps">0.00/sec</div>
+    </div>
+  </div>
+  <div id="topbar-right">
+    <button class="btn btn-sm" onclick="openSettings()">⚙ Settings</button>
+    <button class="btn btn-sm" onclick="openRebirth()">♻ Rebirth</button>
+  </div>
+</div>
+
+<!-- MAIN -->
+<div id="main">
+  <div id="spin-area">
+    <div id="spin-window">
+      <div id="ore-display">
+        <div id="ore-icon">?</div>
+        <div id="ore-name-display">Spin to find ores</div>
+        <div id="ore-rarity-display">—</div>
+        <div id="autoroll-counter"></div>
+      </div>
+    </div>
+    <button id="spin-btn" onclick="doSpin()">SPIN</button>
+    <div id="spin-cost">Cost: 10 coins</div>
+  </div>
+</div>
+
+<!-- AUTOROLL PANEL -->
+<div id="autoroll-panel">
+  <div class="autoroll-title">🔁 Auto Roll</div>
+
+  <div class="ar-section">
+    <div class="ar-label">Stop Condition</div>
+    <div class="ar-row">
+      <select class="ar-select" id="ar-condition">
+        <option value="rarity">Rarer than 1 in</option>
+        <option value="specific">Specific ore</option>
+        <option value="none">Never stop (manual)</option>
+      </select>
+    </div>
+  </div>
+
+  <div class="ar-section" id="ar-rarity-section">
+    <div class="ar-label">Minimum rarity (1 in X)</div>
+    <div class="ar-row">
+      <input class="ar-input" type="number" id="ar-rarity-val" value="1000" min="1" style="width:100%">
+    </div>
+    <div style="font-size:10px;color:var(--text3);margin-top:4px;">Stops when you roll an ore with rarity ≥ this value</div>
+  </div>
+
+  <div class="ar-section" id="ar-specific-section" style="display:none">
+    <div class="ar-label">Search ore</div>
+    <input id="ar-search" type="text" placeholder="Type ore name..." oninput="filterOreList()">
+    <div class="ar-ore-list" id="ar-ore-list"></div>
+  </div>
+
+  <div id="ar-status"></div>
+  <div class="ar-btns">
+    <button id="ar-start-btn" onclick="toggleAutoroll()">▶ Start</button>
+  </div>
+</div>
+
+<!-- AUTOROLL OPEN BUTTON -->
+<button class="btn btn-sm" id="ar-open-btn" onclick="toggleAutorollPanel()">🔁 Auto Roll</button>
+
+<!-- INVENTORY BUTTON -->
+<button class="btn" style="position:fixed;bottom:60px;right:16px;z-index:150;" onclick="toggleInventory()">🎒 Inventory</button>
+
+<!-- INVENTORY PANEL -->
+<div class="panel" id="inventory-panel">
+  <div class="panel-header">
+    <span class="panel-title">🎒 Inventory</span>
+    <div style="display:flex;gap:6px;align-items:center;">
+      <button class="btn btn-sm" onclick="mergeAll()" title="Merge all eligible ores">⚡ Merge All</button>
+      <div id="tier-info-btn" onclick="toggleTierInfo()" style="width:22px;height:22px;border-radius:50%;background:var(--bg3);border:1.5px solid var(--border);font-size:11px;font-weight:800;cursor:pointer;display:flex;align-items:center;justify-content:center;color:var(--text2);">i</div>
+      <button class="panel-close" onclick="toggleInventory()">✕</button>
+    </div>
+  </div>
+  <div id="tier-info-popup" style="display:none;background:var(--bg2);border-radius:var(--radius-sm);padding:10px;margin-bottom:10px;font-size:11px;">
+    <div style="font-weight:800;margin-bottom:6px;">Ore Tier Bonuses</div>
+    <div>⚙ <strong>Normal</strong> — base mps</div>
+    <div>⚡ <strong>Super</strong> — <span style="color:#38bdf8">5× mps</span> (merge 5 normals)</div>
+    <div>💥 <strong>Mega</strong> — <span style="color:#f59e0b">25× mps</span> (merge 5 supers)</div>
+    <div style="margin-top:6px;color:var(--text3);">Auto-equip always picks your highest mps ore.</div>
+  </div>
+  <div class="inv-tabs">
+    <button class="inv-tab active" onclick="setInvTab('ores',this)">Ores</button>
+    <button class="inv-tab" onclick="setInvTab('super',this)">⚡ Super</button>
+    <button class="inv-tab" onclick="setInvTab('mega',this)">💥 Mega</button>
+  </div>
+  <div id="inv-grid"></div>
+</div>
+
+<!-- SETTINGS PANEL -->
+<div class="panel" id="settings-panel">
+  <div class="panel-header">
+    <span class="panel-title">⚙ Settings</span>
+    <button class="panel-close" onclick="openSettings()">✕</button>
+  </div>
+  <div class="setting-row">
+    <div class="setting-label">BACKGROUND COLOR</div>
+    <div class="color-chips" id="color-chips"></div>
+  </div>
+  <div class="setting-row">
+    <div class="setting-label">STATS</div>
+    <div class="stats-grid">
+      <div class="stat-card">
+        <div class="stat-val" id="stat-total">0</div>
+        <div class="stat-lbl">Total Earned</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-val" id="stat-rarest">—</div>
+        <div class="stat-lbl">Rarest Ore</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-val" id="stat-spins">0</div>
+        <div class="stat-lbl">Total Spins</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-val" id="stat-rebirths">0</div>
+        <div class="stat-lbl">Rebirths</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- SPIN SELECTOR -->
+<div id="spin-selector">
+  <label>SPIN TYPE:</label>
+  <button class="spin-type-btn active" id="st-rock" onclick="selectSpinType('rock',this)">🪨 Rock</button>
+  <button class="spin-type-btn" id="st-coal" onclick="selectSpinType('coal',this)">⬛ Coal</button>
+  <button class="spin-type-btn" id="st-iron" onclick="selectSpinType('iron',this)">⚙ Iron</button>
+  <button class="spin-type-btn" id="st-gold" onclick="selectSpinType('gold',this)">🌟 Gold</button>
+  <button class="spin-type-btn" id="st-diamond" onclick="selectSpinType('diamond',this)">💎 Diamond</button>
+  <div id="info-btn" onclick="toggleInfo()">i</div>
+</div>
+
+<!-- INFO POPUP -->
+<div id="info-popup">
+  <h4>Spin Type Info</h4>
+  <p><strong>🪨 Rock</strong> — Cost: 10 | 1× luck</p>
+  <p><strong>⬛ Coal</strong> — Cost: 100 | 2.5× luck</p>
+  <p><strong>⚙ Iron</strong> — Cost: 1,000 | 7.5× luck</p>
+  <p><strong>🌟 Gold</strong> — Cost: 10,000 | 15× luck</p>
+  <p><strong>💎 Diamond</strong> — Cost: 100,000 | 50× luck</p>
+  <p style="margin-top:8px;font-size:10px;color:var(--text3)">Luck multiplier shifts probability toward rarer ores.</p>
+</div>
+
+<!-- REBIRTH OVERLAY -->
+<div id="rebirth-overlay-bg" onclick="closeRebirth()"></div>
+<div class="panel" id="rebirth-panel">
+  <div class="rebirth-icon">♻️</div>
+  <div class="rebirth-title">Rebirth</div>
+  <div class="rebirth-desc">Reset your ores and coins for permanent bonuses:<br><strong>+5% money/sec</strong> and <strong>-10% spin cost</strong></div>
+  <div class="rebirth-cost" id="rebirth-cost-display">Cost: 100 coins</div>
+  <div style="display:flex;gap:8px;justify-content:center;">
+    <button class="btn btn-primary" onclick="doRebirth()">Rebirth</button>
+    <button class="btn" onclick="closeRebirth()">Cancel</button>
+  </div>
+</div>
+
+<!-- NOTIF CONTAINER -->
+<div id="notif-container"></div>
+
+<!-- RARE OVERLAY -->
+<div id="rare-overlay"></div>
+<div id="rare-text" style="display:none"></div>
+
+<!-- EPIC OVERLAY -->
+<div id="epic-flash"></div>
+<div id="epic-overlay"></div>
+<div id="epic-text"></div>
+<div id="epic-subtitle"></div>
+
+<script>
+// ══════════════════════════════════════════════
+//  ORE DEFINITIONS (100 ores)
+// ══════════════════════════════════════════════
+const ORES = [
+  { name:"Dirt", rarity:2, icon:"🪨", color:"#a0856c", mps:0.1 },
+  { name:"Pebble", rarity:3, icon:"🪨", color:"#b0987a", mps:0.15 },
+  { name:"Sand", rarity:4, icon:"🟡", color:"#e2c97e", mps:0.2 },
+  { name:"Gravel", rarity:5, icon:"🪨", color:"#9a9a8a", mps:0.25 },
+  { name:"Clay", rarity:7, icon:"🟫", color:"#c2836a", mps:0.35 },
+  { name:"Limestone", rarity:10, icon:"⬜", color:"#d8d0c0", mps:0.5 },
+  { name:"Flint", rarity:12, icon:"🔘", color:"#8a8a7a", mps:0.6 },
+  { name:"Chalk", rarity:15, icon:"⬜", color:"#f0eedd", mps:0.75 },
+  { name:"Sandstone", rarity:18, icon:"🟨", color:"#d4b483", mps:0.9 },
+  { name:"Slate", rarity:22, icon:"⬛", color:"#6a7a8a", mps:1.1 },
+  { name:"Coal", rarity:28, icon:"⬛", color:"#2a2a2a", mps:1.4 },
+  { name:"Granite", rarity:35, icon:"🔴", color:"#b07070", mps:1.75 },
+  { name:"Basalt", rarity:42, icon:"⬛", color:"#3a3a4a", mps:2.1 },
+  { name:"Marble", rarity:50, icon:"⬜", color:"#e8e8e0", mps:2.5 },
+  { name:"Obsidian", rarity:65, icon:"⬛", color:"#1a1a2a", mps:3.25 },
+  { name:"Iron Ore", rarity:80, icon:"⚙", color:"#a05c3c", mps:4.0 },
+  { name:"Copper Ore", rarity:100, icon:"🟠", color:"#b87333", mps:5.0 },
+  { name:"Tin Ore", rarity:120, icon:"🔵", color:"#88aacc", mps:6.0 },
+  { name:"Lead Ore", rarity:150, icon:"🔵", color:"#607080", mps:7.5 },
+  { name:"Zinc Ore", rarity:180, icon:"🔵", color:"#8ab0b0", mps:9.0 },
+  { name:"Silver Ore", rarity:220, icon:"⚪", color:"#c0c8d0", mps:11.0 },
+  { name:"Nickel Ore", rarity:260, icon:"⚪", color:"#b0b8a0", mps:13.0 },
+  { name:"Cobalt Ore", rarity:300, icon:"🔵", color:"#4466cc", mps:15.0 },
+  { name:"Manganese", rarity:360, icon:"🟤", color:"#8a6060", mps:18.0 },
+  { name:"Titanium Ore", rarity:420, icon:"⚪", color:"#d0d8e8", mps:21.0 },
+  { name:"Gold Ore", rarity:500, icon:"🟡", color:"#ffd700", mps:25.0 },
+  { name:"Chromite", rarity:600, icon:"🔵", color:"#4a6a4a", mps:30.0 },
+  { name:"Bauxite", rarity:700, icon:"🟥", color:"#cc6644", mps:35.0 },
+  { name:"Magnetite", rarity:850, icon:"⬛", color:"#2a3a4a", mps:42.5 },
+  { name:"Pyrite", rarity:1000, icon:"✨", color:"#c8a820", mps:50.0 },
+  { name:"Quartz", rarity:1200, icon:"💠", color:"#dde8f0", mps:60.0 },
+  { name:"Fluorite", rarity:1400, icon:"🟣", color:"#9960c0", mps:70.0 },
+  { name:"Calcite", rarity:1600, icon:"💠", color:"#e0f0e8", mps:80.0 },
+  { name:"Apatite", rarity:1800, icon:"🟢", color:"#48c888", mps:90.0 },
+  { name:"Turquoise", rarity:2100, icon:"🩵", color:"#40bfaf", mps:105.0 },
+  { name:"Topaz", rarity:2500, icon:"🟡", color:"#f0c060", mps:125.0 },
+  { name:"Amethyst", rarity:3000, icon:"💜", color:"#9966cc", mps:150.0 },
+  { name:"Onyx", rarity:3500, icon:"⬛", color:"#202030", mps:175.0 },
+  { name:"Opal", rarity:4200, icon:"🌈", color:"#e0c8e8", mps:210.0 },
+  { name:"Aquamarine", rarity:5000, icon:"🩵", color:"#60d0e0", mps:250.0 },
+  { name:"Garnet", rarity:6000, icon:"❤", color:"#cc2244", mps:300.0 },
+  { name:"Jade", rarity:7000, icon:"💚", color:"#44aa66", mps:350.0 },
+  { name:"Lapis Lazuli", rarity:8500, icon:"🔵", color:"#2244aa", mps:425.0 },
+  { name:"Zircon", rarity:10000, icon:"💠", color:"#80a0e0", mps:500.0 },
+  { name:"Peridot", rarity:12000, icon:"💚", color:"#88cc44", mps:600.0 },
+  { name:"Spinel", rarity:14000, icon:"🔴", color:"#cc4466", mps:700.0 },
+  { name:"Alexandrite", rarity:17000, icon:"✨", color:"#66aa66", mps:850.0 },
+  { name:"Chrysoberyl", rarity:20000, icon:"🟢", color:"#88b844", mps:1000.0 },
+  { name:"Tanzanite", rarity:24000, icon:"💜", color:"#7755cc", mps:1200.0 },
+  { name:"Ruby", rarity:28000, icon:"❤", color:"#ee1144", mps:1400.0 },
+  { name:"Emerald", rarity:33000, icon:"💚", color:"#22cc55", mps:1650.0 },
+  { name:"Sapphire", rarity:40000, icon:"🔵", color:"#2255ee", mps:2000.0 },
+  { name:"Diamond", rarity:50000, icon:"💎", color:"#b0e0ff", mps:2500.0 },
+  { name:"Red Diamond", rarity:65000, icon:"💎", color:"#ff4466", mps:3250.0 },
+  { name:"Pink Diamond", rarity:80000, icon:"💎", color:"#ff88bb", mps:4000.0 },
+  { name:"Blue Diamond", rarity:100000, icon:"💎", color:"#4488ff", mps:5000.0 },
+  { name:"Black Diamond", rarity:130000, icon:"💎", color:"#222233", mps:6500.0 },
+  { name:"Charoite", rarity:160000, icon:"🌸", color:"#8855aa", mps:8000.0 },
+  { name:"Musgravite", rarity:200000, icon:"🟢", color:"#336644", mps:10000.0 },
+  { name:"Grandidierite", rarity:250000, icon:"🩵", color:"#44aacc", mps:12500.0 },
+  { name:"Painite", rarity:320000, icon:"🔴", color:"#cc4422", mps:16000.0 },
+  { name:"Jeremejevite", rarity:400000, icon:"💠", color:"#8899cc", mps:20000.0 },
+  { name:"Benitoite", rarity:500000, icon:"🔵", color:"#2244bb", mps:25000.0 },
+  { name:"Cosmic Quartz", rarity:650000, icon:"🌌", color:"#8844bb", mps:32500.0 },
+  { name:"Starfire Crystal", rarity:820000, icon:"⭐", color:"#ffaa22", mps:41000.0 },
+  { name:"Moonstone Prime", rarity:1000000, icon:"🌕", color:"#ddeeff", mps:50000.0 },
+  { name:"Void Opal", rarity:1300000, icon:"🌑", color:"#110022", mps:65000.0 },
+  { name:"Solar Garnet", rarity:1700000, icon:"☀", color:"#ff8800", mps:85000.0 },
+  { name:"Aurora Stone", rarity:2200000, icon:"🌈", color:"#44ffbb", mps:110000.0 },
+  { name:"Nebula Crystal", rarity:2800000, icon:"🌌", color:"#6622cc", mps:140000.0 },
+  { name:"Temporal Jade", rarity:3600000, icon:"⏳", color:"#22cc99", mps:180000.0 },
+  { name:"Rift Sapphire", rarity:4600000, icon:"💙", color:"#0033ff", mps:230000.0 },
+  { name:"Quantum Ruby", rarity:6000000, icon:"⚛", color:"#ff0033", mps:300000.0 },
+  { name:"Dimensional Emerald", rarity:7800000, icon:"🟩", color:"#00ee55", mps:390000.0 },
+  { name:"Celestial Diamond", rarity:10000000, icon:"✨", color:"#ffffff", mps:500000.0 },
+  { name:"Antimatter Crystal", rarity:13000000, icon:"⚡", color:"#ff00ff", mps:650000.0 },
+  { name:"Phoenix Topaz", rarity:17000000, icon:"🔥", color:"#ff6600", mps:850000.0 },
+  { name:"Dragon Scale", rarity:22000000, icon:"🐉", color:"#cc3300", mps:1100000.0 },
+  { name:"Arcane Amethyst", rarity:28000000, icon:"🔮", color:"#8800ff", mps:1400000.0 },
+  { name:"Eternal Ice", rarity:36000000, icon:"❄", color:"#aaddff", mps:1800000.0 },
+  { name:"Shadow Onyx", rarity:46000000, icon:"🌑", color:"#000011", mps:2300000.0 },
+  { name:"Golden Singularity", rarity:60000000, icon:"🌟", color:"#ffdd00", mps:3000000.0 },
+  { name:"Astral Core", rarity:78000000, icon:"🌠", color:"#88aaff", mps:3900000.0 },
+  { name:"Plasma Crystal", rarity:100000000, icon:"💥", color:"#ff4488", mps:5000000.0 },
+  { name:"Dark Matter Ore", rarity:130000000, icon:"🕳", color:"#110011", mps:6500000.0 },
+  { name:"Neutron Gem", rarity:170000000, icon:"⚛", color:"#ccccff", mps:8500000.0 },
+  { name:"Pulsar Stone", rarity:220000000, icon:"🌀", color:"#44ffff", mps:11000000.0 },
+  { name:"Galaxy Opal", rarity:280000000, icon:"🌌", color:"#440088", mps:14000000.0 },
+  { name:"Singularity Shard", rarity:360000000, icon:"🕳", color:"#220044", mps:18000000.0 },
+  { name:"Omnite", rarity:460000000, icon:"🌈", color:"#ffffff", mps:23000000.0 },
+  { name:"Titan Fragment", rarity:600000000, icon:"⚡", color:"#ffaa00", mps:30000000.0 },
+  { name:"Voidheart", rarity:780000000, icon:"💔", color:"#660022", mps:39000000.0 },
+  { name:"Eternity Crystal", rarity:1000000000, icon:"♾", color:"#aaffdd", mps:50000000.0 },
+  { name:"Primordial Core", rarity:1400000000, icon:"🌍", color:"#226622", mps:70000000.0 },
+  { name:"Celestite Absolute", rarity:1900000000, icon:"☁", color:"#88ccff", mps:95000000.0 },
+  { name:"Omnipotence Gem", rarity:2500000000, icon:"👁", color:"#ff8800", mps:125000000.0 },
+  { name:"The Ore", rarity:10000000000, icon:"🌟", color:"#ffd700", mps:1000000000.0 },
+];
+
+const SPIN_TYPES = {
+  rock:    { label:"🪨 Rock",    cost:10,     luck:1 },
+  coal:    { label:"⬛ Coal",   cost:100,    luck:2.5 },
+  iron:    { label:"⚙ Iron",    cost:1000,   luck:7.5 },
+  gold:    { label:"🌟 Gold",   cost:10000,  luck:15 },
+  diamond: { label:"💎 Diamond",cost:100000, luck:50 },
+};
+
+const BG_THEMES = [
+  { key:"white",  label:"White",  color:"#f8f8f6" },
+  { key:"dark",   label:"Dark",   color:"#1a1a18" },
+  { key:"blue",   label:"Blue",   color:"#dbeafe" },
+  { key:"green",  label:"Green",  color:"#dcfce7" },
+  { key:"pink",   label:"Pink",   color:"#fce7f3" },
+  { key:"purple", label:"Purple", color:"#e9d5ff" },
+  { key:"yellow", label:"Yellow", color:"#fef9c3" },
+  { key:"red",    label:"Red",    color:"#fee2e2" },
+  { key:"orange", label:"Orange", color:"#ffedd5" },
+  { key:"teal",   label:"Teal",   color:"#ccfbf1" },
+];
+
+// ══════════════════════════════════════════════
+//  GAME STATE
+// ══════════════════════════════════════════════
+let state = {
+  coins: 10,
+  totalEarned: 0,
+  totalSpins: 0,
+  rebirths: 0,
+  rebirthBonus: 1.0,
+  spinType: "rock",
+  equippedOre: null,
+  equippedTier: 'normal', // 'normal', 'super', 'mega'
+  inventory: {},
+  unlockedOres: new Set(),
+  rarestOre: null,
+  bgTheme: "white",
+  currentSpinDisplay: null,
+};
+
+let mpsInterval = null;
+let saveInterval = null;
+let invTab = "ores";
+
+// Autoroll state
+let autorollActive = false;
+let autorollInterval = null;
+let autorollCount = 0;
+let autorollTargetOreIdx = null; // for specific ore condition
+
+// ══════════════════════════════════════════════
+//  SAVE / LOAD
+// ══════════════════════════════════════════════
+function saveGame() {
+  const s = {
+    coins: state.coins,
+    totalEarned: state.totalEarned,
+    totalSpins: state.totalSpins,
+    rebirths: state.rebirths,
+    rebirthBonus: state.rebirthBonus,
+    spinType: state.spinType,
+    equippedOre: state.equippedOre,
+    equippedTier: state.equippedTier,
+    inventory: state.inventory,
+    unlockedOres: Array.from(state.unlockedOres),
+    rarestOre: state.rarestOre,
+    bgTheme: state.bgTheme,
+    currentSpinDisplay: state.currentSpinDisplay,
+  };
+  localStorage.setItem("ore_rng_save", JSON.stringify(s));
+}
+
+function loadGame() {
+  const raw = localStorage.getItem("ore_rng_save");
+  if (!raw) return;
+  try {
+    const s = JSON.parse(raw);
+    state.coins = s.coins ?? 10;
+    state.totalEarned = s.totalEarned ?? 0;
+    state.totalSpins = s.totalSpins ?? 0;
+    state.rebirths = s.rebirths ?? 0;
+    state.rebirthBonus = s.rebirthBonus ?? 1.0;
+    state.spinType = s.spinType ?? "rock";
+    state.equippedOre = s.equippedOre ?? null;
+    state.equippedTier = s.equippedTier ?? 'normal';
+    state.inventory = s.inventory ?? {};
+    state.unlockedOres = new Set(s.unlockedOres ?? []);
+    state.rarestOre = s.rarestOre ?? null;
+    state.bgTheme = s.bgTheme ?? "white";
+    state.currentSpinDisplay = s.currentSpinDisplay ?? null;
+    // Migrate old saves: equippedSuper -> equippedTier
+    if (s.equippedSuper && !s.equippedTier) {
+      state.equippedTier = s.equippedSuper ? 'super' : 'normal';
+    }
+  } catch(e) { console.warn("Save load failed", e); }
+}
+
+// ══════════════════════════════════════════════
+//  REBIRTH COST / SPIN COST / MPS
+// ══════════════════════════════════════════════
+function rebirthCost() {
+  if (state.rebirths === 0) return 100;
+  return 100 * Math.pow(10, state.rebirths);
+}
+
+function currentSpinCost() {
+  const base = SPIN_TYPES[state.spinType].cost;
+  const discount = Math.pow(0.9, state.rebirths);
+  return Math.max(1, Math.floor(base * discount));
+}
+
+function currentMPS() {
+  if (state.equippedOre === null) return 0;
+  const ore = ORES[state.equippedOre];
+  let base = ore.mps;
+  if (state.equippedTier === 'super') base *= 5;
+  if (state.equippedTier === 'mega') base *= 25;
+  return base * state.rebirthBonus;
+}
+
+// ══════════════════════════════════════════════
+//  SPIN LOGIC (instant — no delay)
+// ══════════════════════════════════════════════
+function rollOre() {
+  const luck = SPIN_TYPES[state.spinType].luck;
+  const weights = ORES.map(o => luck / o.rarity);
+  const total = weights.reduce((a,b) => a+b, 0);
+  let r = Math.random() * total;
+  for (let i = 0; i < ORES.length; i++) {
+    r -= weights[i];
+    if (r <= 0) return i;
+  }
+  return 0;
+}
+
+// Returns true if the stop condition is met for a rolled ore index
+function checkAutorollStop(idx) {
+  const condition = document.getElementById('ar-condition').value;
+  if (condition === 'none') return false;
+  if (condition === 'rarity') {
+    const minRarity = parseInt(document.getElementById('ar-rarity-val').value) || 1000;
+    return ORES[idx].rarity >= minRarity;
+  }
+  if (condition === 'specific') {
+    return autorollTargetOreIdx !== null && idx === autorollTargetOreIdx;
+  }
+  return false;
+}
+
+function doSpin(fromAutoroll = false) {
+  const cost = currentSpinCost();
+  if (state.coins < cost) {
+    if (fromAutoroll) {
+      stopAutoroll('⚠ Not enough coins!');
+    } else {
+      showNotif("❌ Not enough coins!", "", "");
+    }
+    return false;
+  }
+
+  state.coins -= cost;
+  state.totalSpins++;
+
+  const idx = rollOre();
+  state.currentSpinDisplay = idx;
+
+  // Unlock
+  const isNew = !state.unlockedOres.has(idx);
+  if (isNew) {
+    state.unlockedOres.add(idx);
+    if (!fromAutoroll) {
+      setTimeout(() => showNewOrePopup(idx), 50);
+    }
+  }
+
+  // Add to inventory
+  const ore = ORES[idx];
+  if (!state.inventory[ore.name]) {
+    state.inventory[ore.name] = { count: 0, oreIdx: idx, super: 0, mega: 0 };
+  }
+  state.inventory[ore.name].count++;
+
+  // Track rarest
+  if (!state.rarestOre || ore.rarity > ORES[state.rarestOre]?.rarity) {
+    state.rarestOre = idx;
+  }
+
+  // Auto-equip best (highest rarity normal ore)
+  autoEquipBest();
+
+  // Show the newly spun ore in the window
+  showOreInWindow(idx, 'normal');
+
+  // Rare animation (skip during autoroll to avoid spam)
+  if (!fromAutoroll && ore.rarity >= 50000) {
+    triggerEpicAnimation(ore);
+  } else if (!fromAutoroll && ore.rarity >= 2500) {
+    triggerRareAnimation(ore);
+  }
+
+  updateTopBar();
+
+  // Check autoroll stop condition
+  if (fromAutoroll && checkAutorollStop(idx)) {
+    showOreInWindow(idx, 'normal');
+    if (ore.rarity >= 50000) triggerEpicAnimation(ore);
+    else if (ore.rarity >= 2500) triggerRareAnimation(ore);
+    showNewOrePopup(idx);
+    stopAutoroll(`✅ Found: ${ore.icon} ${ore.name}!`);
+    updateInventory();
+    updateSettings();
+    saveGame();
+    return true;
+  }
+
+  return false;
+}
+
+// Auto-equip the best ore the player owns (highest rarity normal tier)
+function autoEquipBest() {
+  let bestIdx = null;
+  let bestRarity = -1;
+  for (const [name, data] of Object.entries(state.inventory)) {
+    if (data.count > 0 || (data.mega || 0) > 0 || (data.super || 0) > 0) {
+      const ore = ORES[data.oreIdx];
+      // Pick best tier available
+      let tier = 'normal';
+      let mult = 1;
+      if ((data.mega || 0) > 0) { tier = 'mega'; mult = 25; }
+      else if ((data.super || 0) > 0) { tier = 'super'; mult = 5; }
+      const effectiveMPS = ore.mps * mult;
+      if (effectiveMPS > bestRarity) {
+        bestRarity = effectiveMPS;
+        bestIdx = data.oreIdx;
+        state._autoEquipTier = tier;
+      }
+    }
+  }
+  if (bestIdx !== null) {
+    state.equippedOre = bestIdx;
+    state.equippedTier = state._autoEquipTier || 'normal';
+  }
+}
+
+function showOreInWindow(idx, tier) {
+  const ore = ORES[idx];
+  const display = document.getElementById('ore-display');
+  const icon = document.getElementById('ore-icon');
+  const name = document.getElementById('ore-name-display');
+  const rarity = document.getElementById('ore-rarity-display');
+
+  display.classList.remove('roll-anim');
+  void display.offsetWidth;
+  display.classList.add('roll-anim');
+
+  icon.style.background = ore.color;
+  const glowColor = ore.color + '88';
+  if (tier === 'mega') {
+    icon.style.boxShadow = `0 4px 20px ${glowColor}, 0 0 30px ${ore.color}66`;
+    name.textContent = '💥 ' + ore.name + ' MEGA';
+  } else if (tier === 'super') {
+    icon.style.boxShadow = `0 4px 20px ${glowColor}, 0 0 20px ${ore.color}44`;
+    name.textContent = '⬡ ' + ore.name;
+  } else {
+    icon.style.boxShadow = `0 4px 20px ${glowColor}`;
+    name.textContent = ore.name;
+  }
+  icon.textContent = ore.icon;
+  name.style.color = ore.color;
+  rarity.textContent = `1 in ${ore.rarity.toLocaleString()}`;
+}
+
+// ══════════════════════════════════════════════
+//  AUTOROLL
+// ══════════════════════════════════════════════
+function toggleAutorollPanel() {
+  const panel = document.getElementById('autoroll-panel');
+  panel.classList.toggle('open');
+  if (panel.classList.contains('open')) buildOreList();
+}
+
+function toggleAutoroll() {
+  if (autorollActive) {
+    stopAutoroll('⏹ Stopped manually');
+  } else {
+    startAutoroll();
+  }
+}
+
+function startAutoroll() {
+  autorollActive = true;
+  autorollCount = 0;
+  document.getElementById('ar-start-btn').textContent = '⏹ Stop';
+  document.getElementById('ar-start-btn').classList.add('stop');
+  document.getElementById('spin-window').classList.add('autoroll-active');
+  document.getElementById('autoroll-counter').style.display = 'block';
+  setArStatus('🔄 Rolling...', 'running');
+
+  // 1 spin per second
+  autorollInterval = setInterval(() => {
+    autorollCount++;
+    document.getElementById('autoroll-counter').textContent = `${autorollCount.toLocaleString()} rolls`;
+    const stopped = doSpin(true);
+    if (!stopped) {
+      updateInventory();
+      saveGame();
+    }
+  }, 1000);
+}
+
+function stopAutoroll(message) {
+  autorollActive = false;
+  clearInterval(autorollInterval);
+  autorollInterval = null;
+  document.getElementById('ar-start-btn').textContent = '▶ Start';
+  document.getElementById('ar-start-btn').classList.remove('stop');
+  document.getElementById('spin-window').classList.remove('autoroll-active');
+  setArStatus(message || '⏹ Stopped', message && message.startsWith('✅') ? 'found' : '');
+  updateInventory();
+  updateSettings();
+  saveGame();
+}
+
+function setArStatus(msg, cls) {
+  const el = document.getElementById('ar-status');
+  el.textContent = msg;
+  el.className = cls ? `running ${cls === 'found' ? 'found' : ''}` : '';
+  if (cls === 'found') el.style.color = '#22c55e';
+  else if (cls === 'running') el.style.color = '#f59e0b';
+  else el.style.color = '';
+}
+
+// Condition select change
+document.getElementById('ar-condition').addEventListener('change', function() {
+  document.getElementById('ar-rarity-section').style.display = this.value === 'rarity' ? 'block' : 'none';
+  document.getElementById('ar-specific-section').style.display = this.value === 'specific' ? 'block' : 'none';
+});
+
+// ── ORE LIST FOR SPECIFIC STOP ──
+function buildOreList() {
+  filterOreList();
+}
+
+function filterOreList() {
+  const search = document.getElementById('ar-search').value.toLowerCase();
+  const list = document.getElementById('ar-ore-list');
+  list.innerHTML = '';
+  ORES.forEach((ore, idx) => {
+    if (search && !ore.name.toLowerCase().includes(search)) return;
+    const item = document.createElement('div');
+    item.className = 'ar-ore-item' + (autorollTargetOreIdx === idx ? ' selected' : '');
+    item.innerHTML = `<div class="ar-ore-dot" style="background:${ore.color}"></div>${ore.icon} ${ore.name} <span style="color:var(--text3);font-size:10px;margin-left:auto">1/${ore.rarity.toLocaleString()}</span>`;
+    item.onclick = () => {
+      autorollTargetOreIdx = idx;
+      document.querySelectorAll('.ar-ore-item').forEach(i => i.classList.remove('selected'));
+      item.classList.add('selected');
+      setArStatus(`Target: ${ore.name}`, '');
+    };
+    list.appendChild(item);
+  });
+}
+
+// ══════════════════════════════════════════════
+//  RARE ANIMATION
+// ══════════════════════════════════════════════
+function triggerRareAnimation(ore) {
+  const overlay = document.getElementById('rare-overlay');
+  const text = document.getElementById('rare-text');
+  overlay.innerHTML = '';
+  overlay.classList.add('active');
+  text.style.display = 'block';
+  text.style.color = ore.color;
+  text.textContent = ore.name + '!';
+
+  for (let i = 0; i < 12; i++) {
+    const ray = document.createElement('div');
+    ray.className = 'rare-ray';
+    ray.style.color = ore.color;
+    ray.style.setProperty('--a', `${i*30}deg`);
+    ray.style.background = `linear-gradient(90deg, transparent, ${ore.color}, transparent)`;
+    overlay.appendChild(ray);
+  }
+
+  setTimeout(() => {
+    overlay.classList.remove('active');
+    text.style.display = 'none';
+  }, 2200);
+}
+
+// ══════════════════════════════════════════════
+//  EPIC EXPLOSION ANIMATION (1 in 50k+)
+// ══════════════════════════════════════════════
+function triggerEpicAnimation(ore) {
+  // Flash
+  const flash = document.getElementById('epic-flash');
+  flash.style.background = ore.color;
+  flash.classList.remove('active');
+  void flash.offsetWidth;
+  flash.classList.add('active');
+
+  // Overlay
+  const overlay = document.getElementById('epic-overlay');
+  overlay.innerHTML = '';
+  overlay.classList.add('active');
+
+  // Shockwaves
+  for (let i = 0; i < 3; i++) {
+    const sw = document.createElement('div');
+    sw.className = 'epic-shockwave';
+    sw.style.color = ore.color;
+    sw.style.borderColor = ore.color;
+    overlay.appendChild(sw);
+  }
+
+  // Particles
+  for (let i = 0; i < 24; i++) {
+    const p = document.createElement('div');
+    p.className = 'epic-particle';
+    p.style.background = i % 3 === 0 ? '#ffffff' : ore.color;
+    p.style.setProperty('--pa', `${i * 15}deg`);
+    p.style.animationDelay = `${Math.random() * 0.2}s`;
+    overlay.appendChild(p);
+  }
+
+  // Shards
+  for (let i = 0; i < 16; i++) {
+    const s = document.createElement('div');
+    s.className = 'epic-shard';
+    s.style.background = i % 2 === 0 ? ore.color : '#ffffff';
+    s.style.setProperty('--sa', `${i * 22.5}deg`);
+    s.style.animationDelay = `${Math.random() * 0.1}s`;
+    overlay.appendChild(s);
+  }
+
+  // Text
+  const text = document.getElementById('epic-text');
+  text.style.color = ore.color;
+  text.textContent = ore.icon + ' ' + ore.name;
+  text.style.display = 'block';
+  text.style.animation = 'none';
+  void text.offsetWidth;
+  text.style.animation = '';
+
+  const sub = document.getElementById('epic-subtitle');
+  sub.style.color = ore.color;
+  sub.textContent = `1 in ${ore.rarity.toLocaleString()} · LEGENDARY`;
+  sub.style.display = 'block';
+  sub.style.animation = 'none';
+  void sub.offsetWidth;
+  sub.style.animation = '';
+
+  setTimeout(() => {
+    overlay.classList.remove('active');
+    text.style.display = 'none';
+    sub.style.display = 'none';
+    flash.classList.remove('active');
+  }, 2600);
+}
+
+
+function showNewOrePopup(idx) {
+  const ore = ORES[idx];
+  const el = document.createElement('div');
+  el.className = 'notif';
+  el.innerHTML = `
+    <div class="notif-title">✨ New Ore Unlocked!</div>
+    <div class="notif-ore" style="color:${ore.color}">${ore.icon} ${ore.name}</div>
+    <div class="notif-rarity">1 in ${ore.rarity.toLocaleString()}</div>
+  `;
+  document.getElementById('notif-container').appendChild(el);
+  setTimeout(() => {
+    el.classList.add('fade-out');
+    setTimeout(() => el.remove(), 400);
+  }, 3500);
+}
+
+function showNotif(title, name, rarity) {
+  const el = document.createElement('div');
+  el.className = 'notif';
+  el.innerHTML = `<div class="notif-title">${title}</div>${name ? `<div class="notif-ore">${name}</div>` : ''}${rarity ? `<div class="notif-rarity">${rarity}</div>` : ''}`;
+  document.getElementById('notif-container').appendChild(el);
+  setTimeout(() => { el.classList.add('fade-out'); setTimeout(() => el.remove(), 400); }, 2500);
+}
+
+// ══════════════════════════════════════════════
+//  TOP BAR UPDATE
+// ══════════════════════════════════════════════
+function updateTopBar() {
+  document.getElementById('topbar-coins').textContent = formatNum(state.coins);
+  const mps = currentMPS();
+  document.getElementById('topbar-mps').textContent = `+${formatNum(mps)}/sec`;
+
+  if (state.equippedOre !== null) {
+    const ore = ORES[state.equippedOre];
+    let suffix = '';
+    if (state.equippedTier === 'super') suffix = ' ✦';
+    if (state.equippedTier === 'mega') suffix = ' 💥';
+    document.getElementById('topbar-ore-name').textContent = ore.icon + ' ' + ore.name + suffix;
+    document.getElementById('topbar-ore-name').style.color = ore.color;
+    document.getElementById('topbar-ore-sub').textContent = `1 in ${ore.rarity.toLocaleString()} · ${formatNum(mps)}/sec`;
+  } else {
+    document.getElementById('topbar-ore-name').textContent = 'No ore equipped';
+    document.getElementById('topbar-ore-name').style.color = '';
+    document.getElementById('topbar-ore-sub').textContent = '—';
+  }
+
+  document.getElementById('spin-cost').textContent = `Cost: ${currentSpinCost().toLocaleString()} coins`;
+  document.getElementById('rebirth-cost-display').textContent = `Cost: ${formatNum(rebirthCost())} coins`;
+}
+
+// ══════════════════════════════════════════════
+//  INVENTORY
+// ══════════════════════════════════════════════
+function toggleInventory() {
+  const p = document.getElementById('inventory-panel');
+  p.classList.toggle('open');
+  if (p.classList.contains('open')) updateInventory();
+}
+
+function setInvTab(tab, el) {
+  invTab = tab;
+  document.querySelectorAll('.inv-tab').forEach(t => t.classList.remove('active'));
+  el.classList.add('active');
+  updateInventory();
+}
+
+function updateInventory() {
+  const grid = document.getElementById('inv-grid');
+  grid.innerHTML = '';
+
+  let entries = Object.entries(state.inventory).filter(([name, data]) => {
+    if (invTab === 'super') return (data.super || 0) > 0;
+    if (invTab === 'mega') return (data.mega || 0) > 0;
+    return data.count > 0;
+  });
+
+  // Sort by rarity ascending (common at top, rarest at bottom)
+  entries.sort((a, b) => ORES[a[1].oreIdx].rarity - ORES[b[1].oreIdx].rarity);
+
+  if (entries.length === 0) {
+    grid.innerHTML = `<div style="grid-column:1/-1;text-align:center;color:var(--text3);font-size:13px;padding:24px;">No ores here yet!</div>`;
+    return;
+  }
+
+  entries.forEach(([name, data]) => {
+    const ore = ORES[data.oreIdx];
+    const superCount = data.super || 0;
+    const megaCount = data.mega || 0;
+    const isEquipped = state.equippedOre === data.oreIdx;
+
+    let tierLabel = '';
+    let displayMult = 1;
+    let countDisplay = '';
+
+    if (invTab === 'mega') {
+      tierLabel = '<div class="mega-badge">MEGA 💥 25×</div>';
+      displayMult = 25;
+      countDisplay = megaCount + 'x mega';
+    } else if (invTab === 'super') {
+      tierLabel = '<div class="super-badge">SUPER ✦ 5×</div>';
+      displayMult = 5;
+      countDisplay = superCount + 'x super';
+    } else {
+      countDisplay = data.count + 'x';
+    }
+
+    const equippedThisTier =
+      isEquipped &&
+      ((invTab === 'ores' && state.equippedTier === 'normal') ||
+       (invTab === 'super' && state.equippedTier === 'super') ||
+       (invTab === 'mega' && state.equippedTier === 'mega'));
+
+    const canMergeToSuper = data.count >= 5 && invTab === 'ores';
+    const canMergeToMega = superCount >= 5 && invTab === 'super';
+
+    const item = document.createElement('div');
+    item.className = 'inv-item' + (equippedThisTier ? ' equipped' : '');
+    item.innerHTML = `
+      <div class="inv-item-icon" style="background:${ore.color};box-shadow:0 2px 10px ${ore.color}55">${ore.icon}</div>
+      <div class="inv-item-name">${ore.name}</div>
+      ${tierLabel}
+      <div class="inv-item-count">${countDisplay} · 1/${ore.rarity.toLocaleString()}</div>
+      <div class="inv-item-mps">${formatNum(ore.mps * displayMult * state.rebirthBonus)}/sec</div>
+      <div class="inv-item-actions">
+        <button class="equip-btn" onclick="equipOre('${name}', '${invTab === 'mega' ? 'mega' : invTab === 'super' ? 'super' : 'normal'}')">
+          ${equippedThisTier ? 'Equipped' : 'Equip'}
+        </button>
+        ${invTab === 'ores' ? `<button class="merge-btn" ${canMergeToSuper?'':'disabled'} onclick="mergeOre('${name}', 'super')">⚡ Super (${data.count}/5)</button>` : ''}
+        ${invTab === 'super' ? `<button class="merge-mega-btn" ${canMergeToMega?'':'disabled'} onclick="mergeOre('${name}', 'mega')">💥 Mega (${superCount}/5)</button>` : ''}
+      </div>
+    `;
+    grid.appendChild(item);
+  });
+}
+
+function toggleTierInfo() {
+  const el = document.getElementById('tier-info-popup');
+  el.style.display = el.style.display === 'none' ? 'block' : 'none';
+}
+
+function mergeAll() {
+  let superMade = 0, megaMade = 0;
+  for (const [name, data] of Object.entries(state.inventory)) {
+    // Merge normal → super
+    while (data.count >= 5) {
+      data.count -= 5;
+      data.super = (data.super || 0) + 1;
+      superMade++;
+    }
+    // Merge super → mega
+    while ((data.super || 0) >= 5) {
+      data.super -= 5;
+      data.mega = (data.mega || 0) + 1;
+      megaMade++;
+    }
+  }
+  if (superMade > 0 || megaMade > 0) {
+    showNotif(`⚡ Merge All complete!`, `${superMade} Super, ${megaMade} Mega created`, '');
+    autoEquipBest();
+    updateTopBar();
+    updateInventory();
+    saveGame();
+  } else {
+    showNotif('Nothing to merge', 'Need 5 of same ore', '');
+  }
+}
+
+function equipOre(name, tier) {
+  const data = state.inventory[name];
+  if (!data) return;
+  if (tier === 'super' && (!data.super || data.super === 0)) return;
+  if (tier === 'mega' && (!data.mega || data.mega === 0)) return;
+  state.equippedOre = data.oreIdx;
+  state.equippedTier = tier;
+
+  if (state.currentSpinDisplay !== null) {
+    showOreInWindow(state.equippedOre, tier);
+  }
+
+  updateTopBar();
+  updateInventory();
+  saveGame();
+}
+
+function mergeOre(name, targetTier) {
+  const data = state.inventory[name];
+  if (!data) return;
+
+  if (targetTier === 'super') {
+    if (data.count < 5) return;
+    data.count -= 5;
+    data.super = (data.super || 0) + 1;
+    showNotif(`⚡ Super ${name} created!`, `5× mps bonus`, '');
+  } else if (targetTier === 'mega') {
+    if ((data.super || 0) < 5) return;
+    data.super -= 5;
+    data.mega = (data.mega || 0) + 1;
+    showNotif(`💥 MEGA ${name} created!`, `25× mps bonus`, '');
+  }
+
+  autoEquipBest();
+  updateInventory();
+  updateTopBar();
+  saveGame();
+}
+
+// ══════════════════════════════════════════════
+//  SETTINGS
+// ══════════════════════════════════════════════
+function openSettings() {
+  const p = document.getElementById('settings-panel');
+  p.classList.toggle('open');
+  updateSettings();
+}
+
+function updateSettings() {
+  document.getElementById('stat-total').textContent = formatNum(state.totalEarned);
+  document.getElementById('stat-rarest').textContent = state.rarestOre !== null ? ORES[state.rarestOre].name : '—';
+  document.getElementById('stat-spins').textContent = state.totalSpins.toLocaleString();
+  document.getElementById('stat-rebirths').textContent = state.rebirths;
+}
+
+function buildColorChips() {
+  const container = document.getElementById('color-chips');
+  BG_THEMES.forEach(t => {
+    const chip = document.createElement('div');
+    chip.className = 'color-chip' + (state.bgTheme === t.key ? ' active' : '');
+    chip.style.background = t.color;
+    chip.title = t.label;
+    chip.onclick = () => applyTheme(t.key);
+    container.appendChild(chip);
+  });
+}
+
+function applyTheme(key) {
+  BG_THEMES.forEach(t => document.body.classList.remove(t.key));
+  if (key !== 'white') document.body.classList.add(key);
+  state.bgTheme = key;
+  document.querySelectorAll('.color-chip').forEach((c, i) => {
+    c.classList.toggle('active', BG_THEMES[i].key === key);
+  });
+  saveGame();
+}
+
+// ══════════════════════════════════════════════
+//  REBIRTH
+// ══════════════════════════════════════════════
+function openRebirth() {
+  document.getElementById('rebirth-panel').classList.toggle('open');
+  document.getElementById('rebirth-overlay-bg').classList.toggle('open');
+}
+function closeRebirth() {
+  document.getElementById('rebirth-panel').classList.remove('open');
+  document.getElementById('rebirth-overlay-bg').classList.remove('open');
+}
+function doRebirth() {
+  const cost = rebirthCost();
+  if (state.coins < cost) {
+    showNotif('❌ Not enough coins!', '', '');
+    return;
+  }
+  if (autorollActive) stopAutoroll('⏹ Stopped for rebirth');
+  state.coins -= cost;
+  state.coins = 10; // reset coins to 10 after paying rebirth cost
+  state.rebirths++;
+  state.rebirthBonus = Math.pow(1.05, state.rebirths);
+  state.inventory = {};
+  state.equippedOre = null;
+  state.equippedTier = 'normal';
+  state.unlockedOres = new Set();
+  state.rarestOre = null;
+  state.currentSpinDisplay = null;
+  document.getElementById('ore-icon').textContent = '?';
+  document.getElementById('ore-icon').style.background = '';
+  document.getElementById('ore-name-display').textContent = 'Spin to find ores';
+  document.getElementById('ore-name-display').style.color = '';
+  document.getElementById('ore-rarity-display').textContent = '—';
+  document.getElementById('autoroll-counter').style.display = 'none';
+
+  closeRebirth();
+  updateTopBar();
+  updateInventory();
+  updateSettings();
+  showNotif(`♻️ Rebirth #${state.rebirths}!`, `+5% bonus active`, `${(state.rebirthBonus*100-100).toFixed(0)}% total bonus`);
+  saveGame();
+}
+
+// ══════════════════════════════════════════════
+//  SPIN TYPE SELECTOR
+// ══════════════════════════════════════════════
+function selectSpinType(type, el) {
+  document.querySelectorAll('.spin-type-btn').forEach(b => b.classList.remove('active'));
+  el.classList.add('active');
+  state.spinType = type;
+  updateTopBar();
+  saveGame();
+}
+
+function toggleInfo() {
+  document.getElementById('info-popup').classList.toggle('open');
+}
+
+// ══════════════════════════════════════════════
+//  FORMATTING
+// ══════════════════════════════════════════════
+function formatNum(n) {
+  if (n === 0) return '0';
+  if (n < 1000) return n.toFixed(2);
+  if (n < 1e6) return (n/1000).toFixed(2) + 'K';
+  if (n < 1e9) return (n/1e6).toFixed(2) + 'M';
+  if (n < 1e12) return (n/1e9).toFixed(2) + 'B';
+  if (n < 1e15) return (n/1e12).toFixed(2) + 'T';
+  return (n/1e15).toFixed(2) + 'Q';
+}
+
+// ══════════════════════════════════════════════
+//  INIT
+// ══════════════════════════════════════════════
+function init() {
+  loadGame();
+  buildColorChips();
+  applyTheme(state.bgTheme);
+
+  if (state.currentSpinDisplay !== null) {
+    showOreInWindow(state.currentSpinDisplay, state.equippedTier || 'normal');
+  }
+
+  const stBtn = document.getElementById('st-' + state.spinType);
+  if (stBtn) {
+    document.querySelectorAll('.spin-type-btn').forEach(b => b.classList.remove('active'));
+    stBtn.classList.add('active');
+  }
+
+  updateTopBar();
+  updateSettings();
+
+  // MPS tick
+  mpsInterval = setInterval(() => {
+    const mps = currentMPS();
+    if (mps > 0) {
+      state.coins += mps * 0.1;
+      state.totalEarned += mps * 0.1;
+    }
+    updateTopBar();
+  }, 100);
+
+  // Autosave every 10 seconds
+  saveInterval = setInterval(saveGame, 10000);
+
+  window.addEventListener('beforeunload', saveGame);
+
+  document.addEventListener('click', (e) => {
+    const inv = document.getElementById('inventory-panel');
+    const invBtn = e.target.closest('[onclick="toggleInventory()"]');
+    if (inv.classList.contains('open') && !inv.contains(e.target) && !invBtn) {
+      inv.classList.remove('open');
+    }
+    const info = document.getElementById('info-popup');
+    if (info.classList.contains('open') && !info.contains(e.target) && e.target.id !== 'info-btn') {
+      info.classList.remove('open');
+    }
+    const set = document.getElementById('settings-panel');
+    const setBtn = e.target.closest('[onclick="openSettings()"]');
+    if (set.classList.contains('open') && !set.contains(e.target) && !setBtn) {
+      set.classList.remove('open');
+    }
+    const ar = document.getElementById('autoroll-panel');
+    const arBtn = e.target.closest('[onclick="toggleAutorollPanel()"]');
+    if (ar.classList.contains('open') && !ar.contains(e.target) && !arBtn) {
+      ar.classList.remove('open');
+    }
+  });
+}
+
+document.addEventListener('DOMContentLoaded', init);
+</script>
+</body>
+</html>
